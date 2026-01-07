@@ -7,61 +7,72 @@ import FormData from "form-data";
 const app = express();
 const upload = multer({ dest: "uploads/" });
 
-app.use(express.json());
 app.use(express.static("public"));
 
 app.post("/transcribe", upload.single("audio"), async (req, res) => {
   try {
-    const file = fs.createReadStream(req.file.path);
-
-    // 1. Send audio to AI (speech-to-text)
+    // ---------- SPEECH TO TEXT ----------
+    const audioStream = fs.createReadStream(req.file.path);
     const form = new FormData();
-    form.append("file", file);
+    form.append("file", audioStream);
     form.append("model", "whisper-1");
 
-    const stt = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: form
-    });
+    const sttResponse = await fetch(
+      "https://api.openai.com/v1/audio/transcriptions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          ...form.getHeaders()
+        },
+        body: form
+      }
+    );
 
-    const transcript = (await stt.json()).text;
+    const sttData = await sttResponse.json();
 
-    // 2. Convert transcript into medical note
+    if (!sttData.text) {
+      throw new Error("Speech-to-text failed");
+    }
+
+    const transcript = sttData.text;
     const ecw = req.body.ecw === "true";
 
-    const ai = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: ecw
-              ? "You are a medical scribe. Output in eClinicalWorks style. Do not invent diagnoses."
-              : "You are a medical scribe. Output a SOAP note. Do not invent diagnoses."
-          },
-          { role: "user", content: transcript }
-        ]
-      })
-    });
+    // ---------- MEDICAL SCRIBE ----------
+    const aiResponse = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: ecw
+                ? "You are a medical scribe. Output an eClinicalWorks-style encounter note. Do not invent diagnoses."
+                : "You are a medical scribe. Output a SOAP note. Do not invent diagnoses."
+            },
+            { role: "user", content: transcript }
+          ]
+        })
+      }
+    );
 
-    const output = (await ai.json()).choices[0].message.content;
-
+    const aiData = await aiResponse.json();
     fs.unlinkSync(req.file.path);
 
-    res.json({ scribe: output });
+    res.json({ scribe: aiData.choices[0].message.content });
   } catch (err) {
-    res.status(500).json({ error: "Transcription failed" });
+    console.error(err);
+    res.json({ error: err.message });
   }
 });
 
-app.listen(3000, () =>
-  console.log("Medical Scribe running on port 3000")
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () =>
+  console.log(`Medical Scribe running on port ${PORT}`)
 );
