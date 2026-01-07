@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Medical AI Scribe</title>
+<style>
+body { font-family: Arial; margin: 30px; }
+button { margin-right: 10px; }
+textarea { width: 100%; margin-top: 15px; }
+.box { margin-bottom: 20px; }
+</style>
+</head>
+
+<body>
+
+<h1>🏥 Medical AI Scribe</h1>
+
+<div class="box">
+  <label>
+    <input type="checkbox" id="ecw">
+    Use eClinicalWorks-style note
+  </label>
+</div>
+
+<div class="box">
+  <button onclick="startRecording()">🎧 Start Recording</button>
+  <button onclick="stopRecording()">⏹ Stop Recording</button>
+</div>
+
+<div class="box">
+  <strong>📁 Upload Audio File (MP3 / WAV / M4A):</strong><br>
+  <input type="file" accept="audio/*" onchange="uploadFile(this.files[0])">
+</div>
+
+<textarea id="output" rows="20" placeholder="Medical scribe output will appear here..."></textarea>
+
+<script>
+let recorder;
+let chunks = [];
+
+function startRecording() {
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    recorder = new MediaRecorder(stream);
+    recorder.start();
+    chunks = [];
+    recorder.ondataavailable = e => chunks.push(e.data);
+  });
+}
+
+function stopRecording() {
+  recorder.stop();
+  recorder.onstop = async () => {
+    const blob = new Blob(chunks, { type: "audio/webm" });
+    sendAudio(blob);
+  };
+}
+
+async function uploadFile(file) {
+  sendAudio(file);
+}
+
+async function sendAudio(file) {
+  document.getElementById("output").value = "Processing...";
+
+  const form = new FormData();
+  form.append("audio", file);
+  form.append("ecw", document.getElementById("ecw").checked);
+
+  const response = await fetch("/transcribe", {
+    method: "POST",
+    body: form
+  });
+
+  const data = await response.json();
+  document.getElementById("output").value = data.scribe;
+}
+</script>
+
+</body>
+</html>
