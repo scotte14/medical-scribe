@@ -72,7 +72,8 @@ async function sendAudio(file) {
   });
 
   const data = await response.json();
-  document.getElementById("output").value = data.scribe;
+  document.getElementById("output").value =
+  data.scribe || data.error || JSON.stringify(data, null, 2);
 }
 </script>
 
